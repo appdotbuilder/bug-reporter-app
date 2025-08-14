@@ -38,27 +38,44 @@ function App() {
     }
   }, []);
 
-  const handleLogin = async (username: string, password: string, remember: boolean) => {
+  const handleLogin = async (role: string) => {
     try {
-      const response: AuthResponse = await trpc.auth.login.mutate({
-        username,
-        password,
-        remember
-      });
+      // Mock user data based on role
+      const mockUser = role === 'admin' 
+        ? {
+            id: 1,
+            username: 'admin',
+            full_name: 'Admin User',
+            email: 'admin@bugreporter.com',
+            role: 'admin' as const,
+            avatar_url: '/admin-avatar.png',
+            is_active: true,
+            last_login: new Date(),
+            created_at: new Date(),
+            updated_at: new Date()
+          }
+        : {
+            id: 2,
+            username: 'user',
+            full_name: 'John Doe',
+            email: 'user@bugreporter.com',
+            role: 'user' as const,
+            avatar_url: '/default-avatar.png',
+            is_active: true,
+            last_login: new Date(),
+            created_at: new Date(),
+            updated_at: new Date()
+          };
+
+      setCurrentUser(mockUser);
+      setToken('mock-token');
       
-      setCurrentUser(response.user);
-      setToken(response.token);
-      
-      if (remember) {
-        localStorage.setItem('auth_token', response.token);
-      } else {
-        sessionStorage.setItem('auth_token', response.token);
-      }
+      localStorage.setItem('auth_token', 'mock-token');
       
       toast.success('Login berhasil!');
     } catch (error) {
       console.error('Login failed:', error);
-      toast.error('Username atau password salah');
+      toast.error('Login gagal');
       throw error;
     }
   };
