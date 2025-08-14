@@ -8,6 +8,14 @@ import {
     type BulkUpdateReportStatus,
     type BulkAssignReports
 } from '../schema';
+import { db } from '../db';
+import { 
+    reportsTable, 
+    usersTable, 
+    menusTable, 
+    subMenusTable 
+} from '../db/schema';
+import { eq, and, SQL } from 'drizzle-orm';
 
 /**
  * Creates a new bug report
@@ -38,23 +46,122 @@ export async function createReport(input: CreateReportInput): Promise<Report> {
  * This handler will validate report exists, check permissions, and update specified fields
  */
 export async function updateReport(input: UpdateReportInput): Promise<Report> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is updating bug report information.
-    return Promise.resolve({
-        id: input.id,
-        user_id: 1,
-        menu_id: input.menu_id || 1,
-        sub_menu_id: input.sub_menu_id || 1,
-        name: input.name || "Updated Report",
-        description: input.description || "Updated description",
-        status: input.status || "pending",
-        priority: input.priority || "medium",
-        assigned_to: input.assigned_to || null,
-        screenshots: input.screenshots || [],
-        created_at: new Date(),
-        updated_at: new Date(),
-        resolved_at: input.status === 'resolved' ? new Date() : null
-    } as Report);
+    try {
+        // Check if report exists
+        const existingReports = await db.select()
+            .from(reportsTable)
+            .where(eq(reportsTable.id, input.id))
+            .execute();
+
+        if (existingReports.length === 0) {
+            throw new Error('Report not found');
+        }
+
+        // Build update object with only provided fields
+        const updateData: any = {
+            updated_at: new Date()
+        };
+
+        if (input.menu_id !== undefined) {
+            // Validate menu exists and is active
+            const menus = await db.select()
+                .from(menusTable)
+                .where(and(
+                    eq(menusTable.id, input.menu_id),
+                    eq(menusTable.is_active, true)
+                ))
+                .execute();
+
+            if (menus.length === 0) {
+                throw new Error('Invalid menu selected');
+            }
+            updateData.menu_id = input.menu_id;
+        }
+
+        if (input.sub_menu_id !== undefined) {
+            // Validate sub menu exists and is active
+            const subMenus = await db.select()
+                .from(subMenusTable)
+                .where(and(
+                    eq(subMenusTable.id, input.sub_menu_id),
+                    eq(subMenusTable.is_active, true)
+                ))
+                .execute();
+
+            if (subMenus.length === 0) {
+                throw new Error('Invalid sub menu selected');
+            }
+
+            // If menu_id is also being updated, ensure sub_menu belongs to that menu
+            const menuIdToCheck = input.menu_id !== undefined ? input.menu_id : existingReports[0].menu_id;
+            if (subMenus[0].menu_id !== menuIdToCheck) {
+                throw new Error('Sub menu does not belong to the selected menu');
+            }
+            updateData.sub_menu_id = input.sub_menu_id;
+        }
+
+        if (input.assigned_to !== undefined) {
+            if (input.assigned_to !== null) {
+                // Validate assigned user exists and is active
+                const assignedUsers = await db.select()
+                    .from(usersTable)
+                    .where(and(
+                        eq(usersTable.id, input.assigned_to),
+                        eq(usersTable.is_active, true)
+                    ))
+                    .execute();
+
+                if (assignedUsers.length === 0) {
+                    throw new Error('Invalid assigned user');
+                }
+            }
+            updateData.assigned_to = input.assigned_to;
+        }
+
+        if (input.name !== undefined) {
+            updateData.name = input.name;
+        }
+
+        if (input.description !== undefined) {
+            updateData.description = input.description;
+        }
+
+        if (input.status !== undefined) {
+            updateData.status = input.status;
+            // Set resolved_at when status changes to resolved
+            if (input.status === 'resolved') {
+                updateData.resolved_at = new Date();
+            } else if (existingReports[0].status === 'resolved') {
+                // Clear resolved_at if moving away from resolved status
+                updateData.resolved_at = null;
+            }
+        }
+
+        if (input.priority !== undefined) {
+            updateData.priority = input.priority;
+        }
+
+        if (input.screenshots !== undefined) {
+            updateData.screenshots = input.screenshots;
+        }
+
+        // Update the report
+        const result = await db.update(reportsTable)
+            .set(updateData)
+            .where(eq(reportsTable.id, input.id))
+            .returning()
+            .execute();
+
+        // Ensure screenshots is always an array (never null)
+        const updatedReport = result[0];
+        return {
+            ...updatedReport,
+            screenshots: updatedReport.screenshots || []
+        };
+    } catch (error) {
+        console.error('Report update failed:', error);
+        throw error;
+    }
 }
 
 /**
